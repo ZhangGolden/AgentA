@@ -2,6 +2,7 @@ package org.example.agenta.controller;
 
 import lombok.extern.slf4j.Slf4j;
 import org.example.agenta.core.WorkflowDAG;
+import org.example.agenta.model.WorkflowContext;
 import org.example.agenta.service.WorkflowService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -74,6 +75,76 @@ public class WorkflowController {
     }
     
     /**
+     * 执行包含API调用的工作流
+     */
+    @PostMapping("/execute/api")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> executeApiWorkflow(
+            @RequestBody Map<String, Object> request) {
+        
+        log.info("收到API工作流执行请求: {}", request);
+        
+        Object inputData = request.getOrDefault("input", "默认输入数据");
+        Object apiConfig = request.get("apiConfig");
+        
+        WorkflowDAG workflow = workflowService.createApiWorkflow();
+        
+        // 创建包含API配置的上下文
+        WorkflowContext context = new WorkflowContext()
+                .addData("input", inputData);
+        
+        if (apiConfig != null) {
+            context.addData("apiConfig", apiConfig);
+        }
+        
+        return workflowService.executeWorkflow(workflow, context)
+                .thenApply(result -> {
+                    workflow.shutdown(); // 清理资源
+                    return ResponseEntity.ok(result);
+                })
+                .exceptionally(throwable -> {
+                    workflow.shutdown(); // 清理资源
+                    log.error("API工作流执行失败", throwable);
+                    return ResponseEntity.internalServerError()
+                            .body(Map.of("error", throwable.getMessage()));
+                });
+    }
+    
+    /**
+     * 执行并行API调用工作流
+     */
+    @PostMapping("/execute/parallel-api")
+    public CompletableFuture<ResponseEntity<Map<String, Object>>> executeParallelApiWorkflow(
+            @RequestBody Map<String, Object> request) {
+        
+        log.info("收到并行API工作流执行请求: {}", request);
+        
+        Object inputData = request.getOrDefault("input", "默认输入数据");
+        Object apiConfig = request.get("apiConfig");
+        
+        WorkflowDAG workflow = workflowService.createParallelApiWorkflow();
+        
+        // 创建包含API配置的上下文
+        WorkflowContext context = new WorkflowContext()
+                .addData("input", inputData);
+        
+        if (apiConfig != null) {
+            context.addData("apiConfig", apiConfig);
+        }
+        
+        return workflowService.executeWorkflow(workflow, context)
+                .thenApply(result -> {
+                    workflow.shutdown(); // 清理资源
+                    return ResponseEntity.ok(result);
+                })
+                .exceptionally(throwable -> {
+                    workflow.shutdown(); // 清理资源
+                    log.error("并行API工作流执行失败", throwable);
+                    return ResponseEntity.internalServerError()
+                            .body(Map.of("error", throwable.getMessage()));
+                });
+    }
+    
+    /**
      * 获取工作流信息
      */
     @GetMapping("/info")
@@ -84,12 +155,15 @@ public class WorkflowController {
                 "version", "1.0.0",
                 "features", Map.of(
                         "logicalOperators", new String[]{"AND", "OR", "NOT"},
-                        "agents", new String[]{"DataProcessorAgent", "ValidationAgent", "ReportGeneratorAgent"},
-                        "executionMode", "Parallel with dependency management"
+                        "agents", new String[]{"DataProcessorAgent", "ValidationAgent", "ReportGeneratorAgent", "ApiCallAgent"},
+                        "executionMode", "Parallel with dependency management",
+                        "apiSupport", "HTTP GET/POST/PUT/DELETE with retry and timeout"
                 ),
                 "endpoints", Map.of(
                         "sampleWorkflow", "/api/workflow/execute/sample",
-                        "complexWorkflow", "/api/workflow/execute/complex"
+                        "complexWorkflow", "/api/workflow/execute/complex", 
+                        "apiWorkflow", "/api/workflow/execute/api",
+                        "parallelApiWorkflow", "/api/workflow/execute/parallel-api"
                 )
         );
         
